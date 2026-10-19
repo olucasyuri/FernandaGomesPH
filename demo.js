@@ -20,6 +20,7 @@ function demoClient(){
     tarefas:[{id:'k1',titulo:'Enviar proposta Casa Alvorada',data:day(0),hora:'10:00',cliente_id:'c2',feito:false},{id:'k2',titulo:'Editar fotos do ensaio gestante',data:day(1),hora:'',cliente_id:'c3',feito:false},{id:'k3',titulo:'Comprar cartão de memória',data:day(-1),hora:'',feito:false},{id:'k4',titulo:'Revisar portfólio',data:day(3),hora:'14:00',feito:true}],
     despesas:[{id:'d1',descricao:'Lente 35mm',data:day(-3),categoria:'Equipamento',valor:2400},{id:'d2',descricao:'Anúncios Instagram',data:day(-10),categoria:'Marketing',valor:450},{id:'d3',descricao:'Adobe Creative Cloud',data:day(-12),categoria:'Software',valor:180}]
   };
+  T.sessoes.forEach(s=>s.duracao=s.duracao||2); T.sessoes[0].duracao=3;
   const user={id:'demo'}; let cb=()=>{};
   const from=t=>{
     let op='sel',body,id,col;
@@ -40,6 +41,8 @@ function demoClient(){
   };
   return {from,auth:{
     onAuthStateChange(fn){cb=fn;setTimeout(()=>fn('SIGNED_IN',{user}),0);return{data:{subscription:{}}}},
+    resetPasswordForEmail(){return Promise.resolve({error:null})},
+    updateUser(){return Promise.resolve({error:null})},
     signOut(){cb('SIGNED_OUT',null);return Promise.resolve({})},
     signInWithPassword(){setTimeout(()=>cb('SIGNED_IN',{user}),0);return Promise.resolve({data:{session:{}}})},
     signUp(){setTimeout(()=>cb('SIGNED_IN',{user}),0);return Promise.resolve({data:{session:{}}})}

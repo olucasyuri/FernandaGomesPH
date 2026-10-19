@@ -1,8 +1,9 @@
 const DEMO = !/^https?:\/\//.test(SUPABASE_URL);
 const sb = DEMO ? demoClient() : supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const CADASTRO = DEMO || new URLSearchParams(location.search).has('cadastro');
 const MONEY=[['valor','Valor cobrado (R$)','number'],['custo','Custos do trabalho (R$)','number'],['pago','Já recebido (R$)','number']];
 const E = {
-  sessoes:  {label:'Agenda',n:'Nova',um:'sessão',order:'data',f:[['titulo','Título','text'],['data','Data e hora','datetime-local'],['cliente_id','Cliente','rel'],['local','Local','text'],['status','Status','select',['Agendada','Orçamento','Em edição','Entregue','Cancelada']],...MONEY]},
+  sessoes:  {label:'Agenda',n:'Nova',um:'sessão',order:'data',f:[['titulo','Título','text'],['data','Data e hora','datetime-local'],['duracao','Duração (horas)','number'],['cliente_id','Cliente','rel'],['local','Local','text'],['status','Status','select',['Agendada','Orçamento','Em edição','Entregue','Cancelada']],...MONEY]},
   clientes: {label:'Clientes',n:'Novo',um:'cliente',order:'nome',f:[['nome','Nome','text'],['contato','Contato','text'],['notas','Notas','textarea']]},
   campanhas:{label:'Campanhas',n:'Nova',um:'campanha',order:'prazo',f:[['titulo','Título','text'],['cliente_id','Cliente','rel'],['prazo','Prazo','date'],['etapa','Etapa','select',['Briefing','Produção','Edição','Aprovação','Concluída']],...MONEY,['notas','Notas','textarea']]},
   portfolio:{label:'Portfólio',n:'Novo',um:'trabalho',order:'ano',f:[['titulo','Título','text'],['categoria','Categoria','text'],['ano','Ano','number'],['imagem_url','Link da imagem','text']]},
@@ -46,7 +47,7 @@ const line=(a,b)=>`<div class="flex justify-between gap-3 py-2.5 border-t border
 
 /* ---------- telas ---------- */
 function render(){
-  if(!user) return login();
+  if(authMode==='novasenha'||!user) return login();
   $('#app').innerHTML=`${DEMO?`<div class="bg-accent/10 text-accent text-sm rounded-md px-4 py-2 mb-6">Modo demonstração: os dados não são salvos. Configure o <b>config.js</b> para usar o Supabase.</div>`:''}
   <header class="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5 mb-8">
     <h1 class="leading-none"><span class="font-serif text-2xl tracking-wide">Fernanda Gomes</span><span class="block mt-1.5 text-[10px] uppercase tracking-[.4em] text-muted">Fotografia</span></h1>
@@ -63,7 +64,8 @@ function hoje(){
   const prox=ativas.filter(s=>new Date(s.data)>=now&&new Date(s.data)<=lim&&s.status!=='Orçamento');
   const A=[], R='bg-accent', Y='bg-[#c9a227]', G='bg-muted';
   const fut=ativas.filter(s=>new Date(s.data)>=now&&s.status!=='Orçamento');
-  for(let i=1;i<fut.length;i++) if(new Date(fut[i].data)-new Date(fut[i-1].data)<3*36e5) A.push([R,`Conflito de horário: “${fut[i-1].titulo}” e “${fut[i].titulo}” (${fmt(fut[i].data)})`]);
+  const dur=s=>(+s.duracao||2)*36e5; let prev=null;
+  fut.forEach(s=>{const st=+new Date(s.data); if(prev&&st<prev.fim) A.push([R,`Conflito de horário: “${prev.t}” e “${s.titulo}” (${fmt(s.data)})`]); if(!prev||st+dur(s)>prev.fim) prev={t:s.titulo,fim:st+dur(s)}});
   db.campanhas.filter(c=>c.prazo&&c.etapa!=='Concluída'&&new Date(c.prazo+'T23:59')<now).forEach(c=>A.push([R,`Campanha atrasada: ${c.titulo} (prazo ${fmt(c.prazo)})`]));
   J.filter(x=>x.feito&&x.valor>x.pago).forEach(x=>A.push([Y,`Cobrar ${nome(x.cli)||'cliente'}: ${brl(x.valor-x.pago)} de “${x.titulo}”, já entregue`]));
   const orc=db.sessoes.filter(s=>s.status==='Orçamento');
@@ -107,7 +109,7 @@ function fin(){
 }
 
 function lista(t){
-  const c=E[t], rows=db[t], skip=['valor','custo','pago','status','etapa'];
+  const c=E[t], rows=db[t], skip=['valor','custo','pago','status','etapa','duracao'];
   const head=`<div class="flex items-center justify-between mb-5"><h2 class="font-serif text-2xl">${c.label}</h2>
     <button onclick="abrir('${t}')" class="bg-accent text-white text-sm font-medium px-4 py-2.5 rounded-lg hover:opacity-90">+ ${c.n} ${c.um}</button></div>`;
   if(!rows.length) return head+`<p class="text-muted">Nada por aqui ainda.</p>`;
@@ -128,7 +130,7 @@ function lista(t){
 
 /* ---------- formulário ---------- */
 function abrir(t,id,pre){
-  const c=E[t]; editing={t,id}; const r=id?db[t].find(x=>x.id===id):(pre||{});
+  const c=E[t]; editing={t,id}; const r=id?db[t].find(x=>x.id===id):{...(t==='sessoes'?{duracao:2}:{}),...(pre||{})};
   const input=([k,l,ty,opts],i)=>{
     let v=r[k]??'', el;
     if(ty==='datetime-local'&&v){const d=new Date(v);v=new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,16)}
@@ -158,6 +160,7 @@ async function apagar(t,id){ if(!confirm('Excluir este item?'))return; await sb.
 
 /* ---------- calendário ---------- */
 const pad=n=>String(n).padStart(2,'0');
+const hm=d=>pad(d.getHours())+':'+pad(d.getMinutes());
 const dk=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 const DIAS=['seg','ter','qua','qui','sex','sáb','dom'];
@@ -165,14 +168,14 @@ const EVC={s:'bg-accent/10 border-accent',p:'bg-ink/10 border-ink',t:'bg-[#ebe4d
 const EVT={s:'sessoes',p:'campanhas',t:'tarefas'};
 function evs(key){
   const L=[];
-  db.sessoes.forEach(s=>{if(s.data&&s.status!=='Cancelada'){const d=new Date(s.data);if(dk(d)===key)L.push({k:'s',id:s.id,h:pad(d.getHours())+':'+pad(d.getMinutes()),x:s.titulo+(nome(s.cliente_id)?' · '+nome(s.cliente_id):'')})}});
+  db.sessoes.forEach(s=>{if(s.data&&s.status!=='Cancelada'){const d=new Date(s.data);if(dk(d)===key)L.push({k:'s',id:s.id,h:hm(d),f:s.duracao?hm(new Date(+d+s.duracao*36e5)):'',x:s.titulo+(nome(s.cliente_id)?' · '+nome(s.cliente_id):'')})}});
   db.campanhas.forEach(c=>{if(c.prazo===key&&c.etapa!=='Concluída')L.push({k:'p',id:c.id,h:'',x:'Prazo: '+c.titulo})});
   db.tarefas.forEach(t=>{if(t.data===key)L.push({k:'t',id:t.id,h:t.hora||'',x:t.titulo,done:t.feito})});
   return L.sort((a,b)=>a.h>b.h?1:a.h<b.h?-1:0);
 }
 const evFull=e=>e.k==='t'
-  ? `<div class="flex gap-1.5 items-start rounded-md px-2 py-1.5 text-xs border-l-2 ${EVC.t}"><input type="checkbox" ${e.done?'checked':''} onchange="tog('${e.id}')" class="mt-0.5 accent-[#b4532a]"><button onclick="abrir('tarefas','${e.id}')" class="text-left ${e.done?'line-through opacity-60':''}">${e.h?`<b>${e.h}</b> `:''}${esc(e.x)}</button></div>`
-  : `<button onclick="abrir('${EVT[e.k]}','${e.id}')" class="block w-full text-left rounded-md px-2 py-1.5 text-xs border-l-2 ${EVC[e.k]}">${e.h?`<b>${e.h}</b> `:''}${esc(e.x)}</button>`;
+  ? `<div class="flex gap-1.5 items-start rounded-md px-2 py-1.5 text-xs border-l-2 ${EVC.t}"><input type="checkbox" ${e.done?'checked':''} onchange="tog('${e.id}')" class="mt-0.5 accent-[#b4532a]"><button onclick="abrir('tarefas','${e.id}')" class="text-left ${e.done?'line-through opacity-60':''}">${e.h?`<b>${e.h}${e.f?'–'+e.f:''}</b> `:''}${esc(e.x)}</button></div>`
+  : `<button onclick="abrir('${EVT[e.k]}','${e.id}')" class="block w-full text-left rounded-md px-2 py-1.5 text-xs border-l-2 ${EVC[e.k]}">${e.h?`<b>${e.h}${e.f?'–'+e.f:''}</b> `:''}${esc(e.x)}</button>`;
 const evMini=e=>`<button onclick="abrir('${EVT[e.k]}','${e.id}')" class="block w-full truncate text-left text-[11px] rounded px-1 py-0.5 ${EVC[e.k].split(' ')[0]} ${e.done?'line-through opacity-60':''}">${e.h?e.h+' ':''}${esc(e.x)}</button>`;
 
 function calendario(){
@@ -225,34 +228,27 @@ async function tog(id){const t=db.tarefas.find(x=>x.id===id);t.feito=!t.feito;re
 let authMode='login', pendingEmail='';
 const setAuth=m=>{authMode=m;render()};
 const msg=t=>{const e=$('#msg');if(e)e.textContent=t};
-const erroPt=m=>({'Invalid login credentials':'E-mail ou senha incorretos.','User already registered':'Este e-mail já possui cadastro.','Email not confirmed':'Confirme seu e-mail antes de entrar.','Signup requires a valid password':'Informe uma senha válida.'}[m]||m);
+const erroPt=m=>({'Invalid login credentials':'E-mail ou senha incorretos.','User already registered':'Este e-mail já possui cadastro.','Email not confirmed':'Confirme seu e-mail antes de entrar.','New password should be different from the old password.':'A nova senha precisa ser diferente da anterior.','Auth session missing!':'Link expirado. Peça um novo link.','Signups not allowed for this instance':'Novos cadastros estão desativados.'}[m]||m);
 const BTN='w-full bg-ink text-paper py-3.5 text-xs uppercase tracking-[.3em] hover:bg-accent transition-colors';
+const campo=(id,ph,ac,t='password')=>`<input id="${id}" type="${t}" placeholder="${ph}" autocomplete="${ac}" class="uline mb-6" required>`;
 function login(){
+  if(authMode==='signup'&&!CADASTRO) authMode='login';
   const shell=body=>`<div class="min-h-[85vh] flex items-center justify-center text-center"><div class="w-full max-w-xs">
     <h1 class="font-serif text-4xl tracking-wide">Fernanda Gomes</h1>
     <p class="mt-3 text-[11px] uppercase tracking-[.45em] text-muted">Fotografia</p>
     <div class="w-8 h-px bg-accent mx-auto my-10"></div>${body}</div></div>`;
+  const titulo=t=>`<p class="text-[11px] uppercase tracking-[.3em] text-muted mb-8">${t}</p>`;
+  const voltar=t=>`<button onclick="setAuth('login')" class="mt-6 text-xs text-muted hover:text-ink">${t}</button>`;
+  const aviso=(t,p)=>`<p class="font-serif text-xl mb-3">${t}</p><p class="text-sm text-muted leading-relaxed mb-8">${p}</p><button onclick="setAuth('login')" class="text-xs uppercase tracking-[.3em] border-b border-ink pb-1">Voltar ao login</button>`;
+  const form=(fn,campos,btn)=>`<form onsubmit="event.preventDefault();${fn}()" class="text-left">${campos}<p id="msg" class="text-xs text-accent min-h-[1.25rem] mb-3"></p><button class="${BTN}">${btn}</button></form>`;
   let body;
-  if(authMode==='check') body=`<p class="font-serif text-xl mb-3">Quase lá</p>
-    <p class="text-sm text-muted leading-relaxed mb-8">Enviamos um link de confirmação para <b class="text-ink">${esc(pendingEmail)}</b>. Confirme o e-mail e depois faça o login.</p>
-    <button onclick="setAuth('login')" class="text-xs uppercase tracking-[.3em] border-b border-ink pb-1">Voltar ao login</button>`;
-  else if(authMode==='signup') body=`<p class="text-[11px] uppercase tracking-[.3em] text-muted mb-8">Criar conta</p>
-    <form onsubmit="event.preventDefault();cadastrar()" class="text-left">
-      <input id="nm" type="text" placeholder="Nome" autocomplete="name" class="uline mb-6" required>
-      <input id="em" type="email" placeholder="E-mail" autocomplete="email" class="uline mb-6" required>
-      <input id="pw" type="password" placeholder="Senha (mín. 6 caracteres)" autocomplete="new-password" class="uline mb-6" required>
-      <input id="pw2" type="password" placeholder="Confirmar senha" autocomplete="new-password" class="uline mb-6" required>
-      <p id="msg" class="text-xs text-accent min-h-[1.25rem] mb-3"></p>
-      <button class="${BTN}">Criar conta</button>
-    </form>
-    <button onclick="setAuth('login')" class="mt-6 text-xs text-muted hover:text-ink">Já tenho conta</button>`;
-  else body=`<form onsubmit="event.preventDefault();entrar()" class="text-left">
-      <input id="em" type="email" placeholder="E-mail" autocomplete="username" class="uline mb-6">
-      <input id="pw" type="password" placeholder="Senha" autocomplete="current-password" class="uline mb-6">
-      <p id="msg" class="text-xs text-accent min-h-[1.25rem] mb-3"></p>
-      <button class="${BTN}">Entrar</button>
-    </form>
-    <button onclick="setAuth('signup')" class="mt-6 text-xs text-muted hover:text-ink">Criar conta</button>`;
+  if(authMode==='check') body=aviso('Quase lá',`Enviamos um link de confirmação para <b class="text-ink">${esc(pendingEmail)}</b>. Confirme o e-mail e depois faça o login.`);
+  else if(authMode==='resetok') body=aviso('Verifique seu e-mail',`Se <b class="text-ink">${esc(pendingEmail)}</b> estiver cadastrado, enviamos um link para redefinir a senha.`);
+  else if(authMode==='reset') body=titulo('Recuperar senha')+form('recuperar',campo('em','E-mail cadastrado','username','email'),'Enviar link')+voltar('Voltar ao login');
+  else if(authMode==='novasenha') body=titulo('Nova senha')+form('novaSenha',campo('pw','Nova senha (mín. 6 caracteres)','new-password')+campo('pw2','Confirmar nova senha','new-password'),'Salvar senha');
+  else if(authMode==='signup') body=titulo('Criar conta')+form('cadastrar',campo('nm','Nome','name','text')+campo('em','E-mail','email','email')+campo('pw','Senha (mín. 6 caracteres)','new-password')+campo('pw2','Confirmar senha','new-password'),'Criar conta')+voltar('Já tenho conta');
+  else body=form('entrar',campo('em','E-mail','username','email').replace(' required','')+campo('pw','Senha','current-password').replace(' required',''),'Entrar')
+    +`<div class="mt-6 flex justify-center gap-6 text-xs text-muted"><button onclick="setAuth('reset')" class="hover:text-ink">Esqueci minha senha</button>${CADASTRO?`<button onclick="setAuth('signup')" class="hover:text-ink">Criar conta</button>`:''}</div>`;
   $('#app').innerHTML=shell(body);
 }
 async function entrar(){
@@ -267,4 +263,22 @@ async function cadastrar(){
   if(error) return msg(erroPt(error.message));
   if(!data.session){pendingEmail=email;setAuth('check')}
 }
-sb.auth.onAuthStateChange((_,s)=>{user=s?.user||null; user?load():render()});
+async function recuperar(){
+  const email=$('#em').value.trim();
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+  if(error) return msg(erroPt(error.message));
+  pendingEmail=email; setAuth('resetok');
+}
+async function novaSenha(){
+  const pw=$('#pw').value;
+  if(pw.length<6) return msg('A senha precisa ter ao menos 6 caracteres.');
+  if(pw!==$('#pw2').value) return msg('As senhas não coincidem.');
+  const {error}=await sb.auth.updateUser({password:pw});
+  if(error) return msg(erroPt(error.message));
+  authMode='login'; history.replaceState(null,'',location.pathname); load();
+}
+sb.auth.onAuthStateChange((ev,s)=>{
+  user=s?.user||null;
+  if(ev==='PASSWORD_RECOVERY'){authMode='novasenha';render();return}
+  user?load():render();
+});
